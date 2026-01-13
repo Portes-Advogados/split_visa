@@ -26,6 +26,14 @@ function loadEnv($path) {
             // Remove aspas se existirem
             $value = trim($value, '"\'');
             
+            // Se o valor começa com $ e é um token Asaas, mantém o $ (é parte do token)
+            // Mas remove se for apenas $ sem nada (variável vazia)
+            if (strlen($value) > 1 && $value[0] === '$' && strpos($value, '$aact_') === 0) {
+                // Mantém o $ pois faz parte do token Asaas
+            } elseif ($value === '$') {
+                $value = '';
+            }
+            
             // Define como variável de ambiente se não existir
             if (!isset($_ENV[$key])) {
                 $_ENV[$key] = $value;
