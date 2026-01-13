@@ -386,18 +386,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     </form>
     </div>
     <script>
-        document.querySelector("select[name='tipoPagamento']").addEventListener('change', function() {
+        function toggleCreditCardInfo() {
+            var selectTipoPagamento = document.querySelector("select[name='tipoPagamento']");
             var creditCardInfo = document.getElementById('creditCardInfo');
-            creditCardInfo.style.display = this.value == 'CREDIT_CARD' ? 'block' : 'none';
-        });
+            
+            if (selectTipoPagamento && creditCardInfo) {
+                creditCardInfo.style.display = selectTipoPagamento.value == 'CREDIT_CARD' ? 'block' : 'none';
+            }
+        }
 
         function exibirConteudo(id) {
             var todasAsAbas = document.querySelectorAll('div[id]');
             for (var i = 0; i < todasAsAbas.length; i++) {
                 todasAsAbas[i].style.display = 'none';
             }
-            document.getElementById(id).style.display = 'block';
-            sessionStorage.setItem('abaAtiva', id);
+            var abaAtual = document.getElementById(id);
+            if (abaAtual) {
+                abaAtual.style.display = 'block';
+                sessionStorage.setItem('abaAtiva', id);
+                
+                // Se a aba for split_pagamento, configurar o event listener do select
+                if (id === 'split_pagamento') {
+                    var selectTipoPagamento = document.querySelector("select[name='tipoPagamento']");
+                    if (selectTipoPagamento) {
+                        selectTipoPagamento.addEventListener('change', toggleCreditCardInfo);
+                        toggleCreditCardInfo(); // Atualizar estado inicial
+                    }
+                }
+            }
         }
 
         window.onload = function() {
