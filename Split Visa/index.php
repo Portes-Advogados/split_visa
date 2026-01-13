@@ -9,6 +9,8 @@ $clienteBuscadoComSucesso = false;
 $clienteInfo = "";
 $cobrancasEncontradas = false;
 $cobrancas = [];
+$erroBuscaCliente = "";
+$erroBuscaCobrancas = "";
 
 // Carregar token da API Asaas das variáveis de ambiente
 $token = env('ASAAS_TOKEN', '');
@@ -31,8 +33,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     switch ($acao) {
         case 'buscar_cliente':
+            $cpfCnpjBusca = trim($_POST['cpfCnpjBusca'] ?? '');
+            
+            if (empty($cpfCnpjBusca)) {
+                $erroBuscaCliente = "Por favor, informe o CPF/CNPJ para buscar.";
+                break;
+            }
+            
             curl_setopt_array($curl, [
-                CURLOPT_URL => "https://api.asaas.com/v3/customers?cpfCnpj=" . urlencode($_POST['cpfCnpjBusca']),
+                CURLOPT_URL => "https://api.asaas.com/v3/customers?cpfCnpj=" . urlencode($cpfCnpjBusca),
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => "",
                 CURLOPT_MAXREDIRS => 10,
@@ -46,23 +55,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             ]);
 
             $response = curl_exec($curl);
+            $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
             $err = curl_error($curl);
 
             curl_close($curl);
 
-            if (!$err) {
+            if ($err) {
+                $erroBuscaCliente = "Erro de conexão: " . $err;
+            } elseif ($httpCode != 200) {
                 $responseData = json_decode($response, true);
-                if (!empty($responseData['data'])) {
+                $erroBuscaCliente = "Erro na API: " . ($responseData['errors'][0]['description'] ?? "Código HTTP $httpCode");
+            } else {
+                $responseData = json_decode($response, true);
+                if (!empty($responseData['data']) && count($responseData['data']) > 0) {
                     $clienteBuscadoComSucesso = true;
                     $clienteInfo = $responseData['data'][0];
+                    $_SESSION['clienteId'] = $responseData['data'][0]['id'];
+                } else {
+                    $erroBuscaCliente = "Cliente não encontrado com o CPF/CNPJ informado.";
                 }
-            } else {
-                echo "Erro ao buscar cliente: $err";
             }
             break;
 
         case 'buscar_cobrancas':
-            $customerIdParaCobrancas = !empty($_POST['customerIdCobrancas']) ? $_POST['customerIdCobrancas'] : (isset($_SESSION['clienteId']) ? $_SESSION['clienteId'] : '');
+            $customerIdParaCobrancas = trim($_POST['customerIdCobrancas'] ?? '');
+            
+            if (empty($customerIdParaCobrancas)) {
+                $customerIdParaCobrancas = isset($_SESSION['clienteId']) ? $_SESSION['clienteId'] : '';
+            }
             
             if (!empty($customerIdParaCobrancas)) {
                 curl_setopt_array($curl, [
@@ -80,19 +100,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 ]);
 
                 $response = curl_exec($curl);
+                $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
                 $err = curl_error($curl);
                 curl_close($curl);
 
-                if (!$err) {
+                if ($err) {
+                    $erroBuscaCobrancas = "Erro de conexão: " . $err;
+                } elseif ($httpCode != 200) {
                     $responseData = json_decode($response, true);
-                    if (!empty($responseData['data'])) {
-                        $cobrancasEncontradas = true;
-                        $cobrancas = $responseData['data'];
-                    }
+                    $erroBuscaCobrancas = "Erro na API: " . ($responseData['errors'][0]['description'] ?? "Código HTTP $httpCode");
                 } else {
-                    echo "Erro ao buscar cobranças: $err";
+                    $responseData = json_decode($response, true);
+                    $cobrancasEncontradas = true;
+                    $cobrancas = !empty($responseData['data']) ? $responseData['data'] : [];
                 }
             } else {
+                $erroBuscaCobrancas = "Por favor, informe o ID do cliente.";
                 curl_close($curl);
             }
             break;
@@ -341,23 +364,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <div id="buscar_cliente" style="display:none;">
     <?php if ($clienteBuscadoComSucesso): ?>
-        <p>ID do Cliente: <?php echo htmlspecialchars($clienteInfo['id']); ?></p>
-        <p>Nome: <?php echo htmlspecialchars($clienteInfo['name']); ?></p>
-    <?php elseif ($_SERVER["REQUEST_METHOD"] == "POST" && $acao == 'buscar_cliente'): ?>
-        <p>Cliente não encontrado.</p>
+        <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 500px;">
+            <h3 style="color: #155724; margin-top: 0;">✅ Cliente encontrado!</h3>
+            <p><strong>ID do Cliente:</strong> <?php echo htmlspecialchars($clienteInfo['id']); ?></p>
+            <p><strong>Nome:</strong> <?php echo htmlspecialchars($clienteInfo['name'] ?? ''); ?></p>
+            <p><strong>CPF/CNPJ:</strong> <?php echo htmlspecialchars($clienteInfo['cpfCnpj'] ?? ''); ?></p>
+            <p><strong>Email:</strong> <?php echo htmlspecialchars($clienteInfo['email'] ?? ''); ?></p>
+        </div>
+    <?php elseif (!empty($erroBuscaCliente)): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 500px;">
+            <h3 style="color: #721c24; margin-top: 0;">❌ Erro ao buscar cliente</h3>
+            <p><?php echo htmlspecialchars($erroBuscaCliente); ?></p>
+        </div>
     <?php endif; ?>
-    <form action="" method="post">
-        CPF/CNPJ: <input type="text" name="cpfCnpjBusca" required><br>
+    <form action="" method="post" style="margin-top: 20px;">
+        <label>CPF/CNPJ:</label>
+        <input type="text" name="cpfCnpjBusca" value="<?php echo isset($_POST['cpfCnpjBusca']) ? htmlspecialchars($_POST['cpfCnpjBusca']) : ''; ?>" required><br>
         <input type="hidden" name="acao" value="buscar_cliente">
-        <input type="submit" value="Buscar Cliente">
+        <input type="submit" value="Buscar Cliente" class="button">
     </form>
     </div>
 
     <div id="ver_cobrancas" style="display:none;">
-    <?php if ($cobrancasEncontradas): ?>
+    <?php if (!empty($erroBuscaCobrancas)): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 500px;">
+            <h3 style="color: #721c24; margin-top: 0;">❌ Erro ao buscar cobranças</h3>
+            <p><?php echo htmlspecialchars($erroBuscaCobrancas); ?></p>
+        </div>
+    <?php elseif ($cobrancasEncontradas): ?>
         <h3>Cobranças encontradas:</h3>
         <?php if (empty($cobrancas)): ?>
-            <p>Nenhuma cobrança encontrada para este cliente.</p>
+            <div style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin: 20px auto; max-width: 500px;">
+                <p><strong>⚠️ Nenhuma cobrança encontrada para este cliente.</strong></p>
+                <p>O cliente pode não ter cobranças cadastradas ainda.</p>
+            </div>
         <?php else: ?>
             <table style="margin: 20px auto; border-collapse: collapse; width: 80%;">
                 <tr style="background-color: #913c55; color: white;">
@@ -377,10 +417,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     </tr>
                 <?php endforeach; ?>
             </table>
+            <p style="text-align: center; margin-top: 10px;"><strong>Total de cobranças: <?php echo count($cobrancas); ?></strong></p>
         <?php endif; ?>
     <?php endif; ?>
-    <form action="" method="post">
-        ID do Cliente: <input type="text" name="customerIdCobrancas" value="<?php echo isset($_SESSION['clienteId']) ? htmlspecialchars($_SESSION['clienteId']) : ''; ?>" required><br>
+    <form action="" method="post" style="margin-top: 20px;">
+        <label>ID do Cliente:</label>
+        <input type="text" name="customerIdCobrancas" value="<?php echo isset($_POST['customerIdCobrancas']) ? htmlspecialchars($_POST['customerIdCobrancas']) : (isset($_SESSION['clienteId']) ? htmlspecialchars($_SESSION['clienteId']) : ''); ?>" required><br>
         <input type="hidden" name="acao" value="buscar_cobrancas">
         <input type="submit" value="Buscar Cobranças" class="button">
     </form>
